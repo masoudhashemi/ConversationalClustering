@@ -1,0 +1,13 @@
+torch
+numpy
+scikit-learn
+transformers
+sentence-transformers
+pydantic
+openai
+tenacity
+tqdm
+litellm
+networkx
+faiss-cpu
+psutil
