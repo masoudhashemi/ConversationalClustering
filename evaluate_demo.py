@@ -102,54 +102,83 @@ def demo_full_engine_evaluation():
     print("🚀 FULL ENGINE EVALUATION DEMO")
     print("=" * 50)
 
-    # Create sample texts for clustering
+    # 30 texts across 5 clear genres (3x each, no exact duplicates)
     texts = [
-        "Action movie with explosions and car chases",
-        "Romantic comedy with light-hearted jokes",
-        "Horror film with scary monsters",
-        "Documentary about space exploration",
-        "Western with gunfights and horses",
-        "Thriller with detectives and mystery",
-        "Animated family movie for kids",
-        "Superhero film with special effects",
-        "Drama about friendship and betrayal",
-        "Sci-fi adventure with time travel"
-    ] * 2  # Duplicate for more samples
+        # Action (0-2)
+        "A fast-paced action movie with explosions and car chases, starring Arnold Schwarzenegger.",
+        "An intense action blockbuster featuring martial arts and gunfights in Hong Kong.",
+        "A high-octane action thriller with a bank heist and dramatic helicopter chase scenes.",
+        # Comedy (3-5)
+        "A romantic comedy with light-hearted jokes and love stories, starring Julia Roberts.",
+        "A slapstick comedy about two bumbling thieves who accidentally save the day.",
+        "An animated family comedy about toys coming to life, featuring Tim Allen and Tom Hanks.",
+        # Horror (6-8)
+        "A horror movie with jump scares and ghosts, set in an old house.",
+        "A psychological horror film about a family trapped in a haunted hotel during winter.",
+        "A slasher horror movie set in a summer camp with terrifying masked villains.",
+        # Drama (9-11)
+        "A dark drama about friendship and betrayal in a small town, directed by Martin Scorsese.",
+        "An emotional drama about a pianist struggling with loss and finding redemption through music.",
+        "A courtroom drama about a wrongfully convicted man fighting for justice.",
+        # Sci-fi / Thriller (12-14)
+        "A sci-fi thriller about time travel and paradoxes, directed by Christopher Nolan.",
+        "A dystopian sci-fi film about robots gaining sentience and challenging their creators.",
+        "A space exploration sci-fi adventure with astronauts stranded on a distant planet.",
+        # Documentary (15-17)
+        "A documentary about space exploration, narrated by David Attenborough.",
+        "A nature documentary following the migration of wildebeest across the Serengeti.",
+        "A historical documentary about the rise and fall of ancient civilizations.",
+        # Western (18-19)
+        "A western adventure with gunfights and horses, starring Clint Eastwood.",
+        "A revisionist western about outlaws seeking redemption in the untamed frontier.",
+        # Superhero (20-22)
+        "A superhero action film with lots of fighting and special effects, starring Chris Hemsworth.",
+        "A dark superhero movie exploring the moral cost of vigilante justice in Gotham City.",
+        "A team-up superhero blockbuster featuring heroes from across the multiverse.",
+        # Thriller / Mystery (23-24)
+        "A slow-burning thriller about detectives solving a mystery, with long dialogues.",
+        "A psychological thriller about an unreliable narrator hiding a dark secret.",
+    ]
 
-    # Initialize engine
     print("Initializing clustering engine...")
     engine = ClusterRefinementEngine(
         texts=texts,
-        n_clusters=3,
+        n_clusters=4,
         device="cpu",
         use_projection_head=False,
         num_heads=1
     )
 
-    # Evaluate initial clustering
     print("\n📈 Initial Clustering Evaluation:")
     initial_report = print_evaluation_report(engine, iteration=0)
 
-    # Apply some feedback
     print("\n💬 Applying User Feedback...")
+    feedback_rounds = [
+        # Structural constraints first
+        "Items 0 and 2 should be together since they are both high-energy action movies.",
+        "Items 6 and 5 should NOT be together - horror and comedy are totally different tones.",
+        "Items 12 and 3 should NOT be together - sci-fi thrillers and romantic comedies are completely different.",
+        "Items 9, 10, and 11 should be together - they are all serious dramas.",
+        "Item 9 seems to be in the wrong cluster. It's a serious drama, not action.",
+        # Semantic guidance
+        "Emphasize genre and tone when clustering - these matter more than actor names.",
+        # More structural constraints to reinforce separation
+        "Items 20 and 0 should be together - superhero and action films belong together.",
+        "Items 6 and 9 should NOT be together - horror and drama have very different tones.",
+    ]
 
-    # Add some must-links
-    feedback1 = "Items 0 and 10 should be together (both action movies)"
-    print(f"User: {feedback1}")
-    reply1 = engine.chat(feedback1)
-    print(f"Assistant: {reply1}")
+    for i, fb in enumerate(feedback_rounds, 1):
+        print(f"\n[Round {i}] User: {fb}")
+        reply = engine.chat(fb)
+        print(f"Assistant: {reply}")
 
-    # Add some cannot-links
-    feedback2 = "Items 0 and 5 should NOT be together (action vs thriller)"
-    print(f"\nUser: {feedback2}")
-    reply2 = engine.chat(feedback2)
-    print(f"Assistant: {reply2}")
+    # Convergence: extra training so all accumulated constraints settle
+    print("\n⏳ Running convergence training (30 extra epochs)...")
+    engine.train_step(epochs=30)
 
-    # Evaluate after feedback
     print("\n📈 Post-Feedback Evaluation:")
-    final_report = print_evaluation_report(engine, iteration=1)
+    final_report = print_evaluation_report(engine, iteration=len(feedback_rounds))
 
-    # Compare improvements
     print("\n🔍 COMPARING RESULTS:")
     evaluator = ClusterEvaluator()
     improvements = evaluator.compare_reports(initial_report, final_report)

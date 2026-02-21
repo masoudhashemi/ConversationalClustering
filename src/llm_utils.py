@@ -51,7 +51,12 @@ class LLMOracle:
         - miscluster: User indicates an item is in the wrong cluster (e.g., "item X is misplaced", "X doesn't belong here")
         - merge_clusters: User wants to combine clusters (e.g., "clusters A and B are the same topic", "merge clusters X and Y")
         - rename_cluster: User wants to give a cluster a semantic label (e.g., "call cluster X 'Action Movies'", "rename cluster Y to 'Thrillers'")
-        - emphasize_feature: User wants to prioritize certain concepts (e.g., "focus on thriller elements", "emphasize mystery aspects")
+        - emphasize_feature: User wants to prioritize certain concepts for clustering.
+          IMPORTANT: Emit ONE action per individual keyword/concept. Do NOT bundle multiple concepts into a single text_payload.
+          Example: if the user says "focus on thriller and mystery elements", emit TWO separate actions:
+            {"feedback_type": "emphasize_feature", "text_payload": "thriller", ...}
+            {"feedback_type": "emphasize_feature", "text_payload": "mystery", ...}
+          Strip filler words like "elements", "aspects", "features" — only keep the actual concept.
         - subcluster: User wants to split a cluster (e.g., "cluster X is too mixed, split it", "divide cluster Y into subgroups")
         - assign_outlier: User wants to force an outlier into a specific cluster (e.g., "move outlier Z to cluster A")
 
@@ -123,10 +128,10 @@ class LLMOracle:
         3. Clarify Boundaries: Ask about pairs that are close in distance but in different clusters, or far apart but in the same cluster.
         4. Mutual Information: Prefer questions that resolve ambiguity for entire groups of items, not just isolated cases.
 
-        CRITICAL: Perform a "Common Sense Check" on every candidate.
-        - Some pairs might be geometrically close but semantically absurd (e.g., "Action Movie" vs "RomCom").
-        - DO NOT ask questions that a human would find obviously silly or unrelated.
-        - Only propose questions where there is a GENUINE ambiguity or a reasonable chance the user considers them related.
+        CRITICAL CONSTRAINTS:
+        - Common Sense Check: DO NOT ask questions that a human would find obviously silly or unrelated. Only propose questions where there is GENUINE ambiguity.
+        - DIVERSITY: Each question MUST be about a DIFFERENT item, pair, or cluster. Never ask two questions about the same item, the same pair, or the same cluster. If multiple candidates share the same underlying text, pick only one.
+        - VARIETY: Try to mix question types (e.g., one item question, one pair question, one cluster question) rather than repeating the same type.
         
         Return your response as a valid JSON object with a key 'questions' containing the list of questions.
         Each question should clarify *why* it is being asked (e.g. "These are close but in different clusters")."""

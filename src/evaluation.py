@@ -163,18 +163,19 @@ class ClusterEvaluator:
         cluster_sizes = []
         cluster_variances = []
 
-        for k in range(len(np.unique(labels))):
+        unique_labels = sorted(np.unique(labels))
+        n_display = max(unique_labels) + 1 if unique_labels else 0
+        for k in range(n_display):
             mask = (labels == k)
-            cluster_sizes.append(np.sum(mask))
+            cluster_sizes.append(int(np.sum(mask)))
 
             if np.any(mask):
                 cluster_points = embeddings[mask]
-                if centroids is not None:
+                if centroids is not None and k < len(centroids):
                     center = centroids[k]
                 else:
                     center = np.mean(cluster_points, axis=0)
 
-                # Mean squared distance to center
                 variance = np.mean(np.sum((cluster_points - center)**2, axis=1))
                 cluster_variances.append(variance)
             else:

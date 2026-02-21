@@ -51,6 +51,7 @@ class SystemState(BaseModel):
     must_links: List[List[int]]
     cannot_links: List[List[int]]
     miscluster_flags: List[int]
+    cluster_splits: List[int]
     cluster_labels: Dict[int, str]
     emphasized_keywords: List[str]
 

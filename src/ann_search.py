@@ -111,7 +111,7 @@ class ApproximateNeighborSearch:
         # Train the index if needed
         if hasattr(self.index, 'is_trained') and not self.index.is_trained:
             print(f"Training {self.config.index_type} index...")
-            self.index.train(embeddings)
+            self.index.train(self.embeddings)
             self.is_trained = True
 
         # Add vectors to index
@@ -143,6 +143,10 @@ class ApproximateNeighborSearch:
 
         # Normalize query embeddings
         query_norm = query_embeddings.copy()
+        if query_norm.dtype != np.float32:
+            query_norm = query_norm.astype(np.float32)
+        if not query_norm.flags.c_contiguous:
+            query_norm = np.ascontiguousarray(query_norm)
         faiss.normalize_L2(query_norm)
 
         # Set search parameters for IVF
@@ -154,7 +158,7 @@ class ApproximateNeighborSearch:
             distances, indices = self.index.search(query_norm, k)
             return indices, distances
         else:
-            indices, _ = self.index.search(query_norm, k)
+            _, indices = self.index.search(query_norm, k)
             return indices
 
     def find_boundary_pairs(self, labels: np.ndarray, uncertain_items: List[int],
@@ -184,20 +188,29 @@ class ApproximateNeighborSearch:
         for idx in uncertain_items[:max_pairs * 2]:  # Limit to avoid too many queries
             # Find nearest neighbors (excluding self)
             query_emb = self.embeddings[idx:idx+1]  # [1, D]
-            indices, distances = self.search(query_emb, k=20)
+            k_search = min(20, self.embeddings.shape[0])
+            if k_search <= 1:
+                continue
+            indices, distances = self.search(query_emb, k=k_search)
 
             nn_indices = indices[0][1:11]  # Skip self (index 0), take next 10
-            nn_distances = distances[0][1:11]
+            nn_scores = distances[0][1:11]
 
             current_label = labels[idx]
 
             # Check which neighbors are in different clusters
-            for nn_idx, dist in zip(nn_indices, nn_distances):
+            for nn_idx, score in zip(nn_indices, nn_scores):
+                if nn_idx < 0:
+                    # FAISS may return -1 when not enough neighbors are available.
+                    continue
                 if labels[nn_idx] != current_label:
                     # Found a boundary pair
-                    pair = tuple(sorted([idx, nn_idx]))
+                    pair = tuple(sorted([int(idx), int(nn_idx)]))
                     if pair not in processed_pairs:
-                        boundary_pairs.append((idx, nn_idx, float(dist)))
+                        # FAISS IP returns similarity (higher is closer).
+                        # Convert to cosine distance-like value so lower means closer.
+                        distance = 1.0 - float(score)
+                        boundary_pairs.append((int(idx), int(nn_idx), distance))
                         processed_pairs.add(pair)
 
                         if len(boundary_pairs) >= max_pairs:

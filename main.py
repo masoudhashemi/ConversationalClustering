@@ -156,9 +156,6 @@ def main():
     print(f"Total feedback rounds: {len(demo_inputs)}")
     print(f"{'='*60}")
 
-if __name__ == "__main__":
-    main()
-
 def test_natural_language_parsing():
     """Test that natural language inputs are structured to trigger correct constraint types"""
     print("Testing Natural Language → Constraint Type Conversion...")
@@ -243,15 +240,24 @@ def test_all_constraints():
     from src.constraints import ConstraintStore
     from src.feedback_handlers import FeedbackExecutor
     from src.schema import FeedbackAction, FeedbackType
+    import numpy as np
 
     # Create store and executor
     store = ConstraintStore()
     executor = FeedbackExecutor()
+    
+    class DummyContext:
+        def __init__(self):
+            # Two non-empty clusters so merge/outlier actions have valid targets.
+            self.labels = np.array([0, 0, 0, 1, 1, 1])
+    
+    context = DummyContext()
 
     # Test all constraint types
     test_actions = [
         FeedbackAction(feedback_type=FeedbackType.MUST_LINK, item_ids=[0, 1]),
-        FeedbackAction(feedback_type=FeedbackType.CANNOT_LINK, item_ids=[2, 3]),
+        # Use ids outside merge/outlier pool so cannot-link is deterministic.
+        FeedbackAction(feedback_type=FeedbackType.CANNOT_LINK, item_ids=[100, 101]),
         FeedbackAction(feedback_type=FeedbackType.MISCLUSTER, item_ids=[4]),
         FeedbackAction(feedback_type=FeedbackType.MERGE_CLUSTERS, cluster_ids=[0, 1]),
         FeedbackAction(feedback_type=FeedbackType.RENAME_CLUSTER, cluster_ids=[0], text_payload="Action Movies"),
@@ -263,7 +269,7 @@ def test_all_constraints():
     # Execute all actions
     for i, action in enumerate(test_actions, 1):
         print(f"Testing {action.feedback_type.value}...")
-        executor.execute([action], store)
+        executor.execute([action], store, context=context)
         print(f"  ✓ {action.feedback_type.value} constraint applied")
 
     # Check final stats
@@ -278,7 +284,8 @@ def test_all_constraints():
     print(f"  ML Components: {stats['ml_components']}")
 
     expected_counts = {
-        'num_must_links': 4,  # 2 from must_link + 3 from assign_outlier
+        # 1 from must_link + 3 from merge_clusters + 2 from assign_outlier
+        'num_must_links': 6,
         'num_cannot_links': 1,
         'num_misclusters': 1,
         'num_labels': 1,

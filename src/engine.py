@@ -84,12 +84,20 @@ class ClusterRefinementEngine:
         self.labels: Optional[np.ndarray] = None
         self.history: List[ChatMessage] = []
 
+        # Track items that have already been surfaced in active-learning
+        # questions so we avoid repeating the same suggestions.
+        self._asked_item_ids: set = set()
+
         # State management for rollback
         self.step_counter: int = 0
         self.state_history: List[SystemState] = []
         self.initial_state: Optional[SystemState] = None
 
         self._update_clustering()
+        # Save an initial checkpoint so rollback/reset can always return to step 0.
+        self.initial_state = self._create_checkpoint("Initial state")
+        self.state_history.append(copy.deepcopy(self.initial_state))
+        self.step_counter = 1
 
     def _update_clustering(self):
         with torch.no_grad():
@@ -228,7 +236,7 @@ class ClusterRefinementEngine:
                 self._save_checkpoint(desc)
 
                 # Trigger a training step
-                self.train_step(epochs=3)
+                self.train_step(epochs=10)
 
         # 5. Update history and return reply
         self.history.append(ChatMessage(role="assistant", content=response.reply_to_user))
@@ -340,9 +348,7 @@ class ClusterRefinementEngine:
                 emphasized_keywords=list(self.constraints.emphasized_keywords),
                 keyword_embeddings=keyword_z_map
             )
-            # Scale feedback loss to ensure constraints are prioritized
-            # loss_fb already includes weights, but we can add a global multiplier if needed
-            loss = loss_cluster + 1.0 * loss_fb
+            loss = loss_cluster + 3.0 * loss_fb
 
             # Check for finite loss
             if not torch.isfinite(loss):
@@ -358,6 +364,17 @@ class ClusterRefinementEngine:
 
         self._update_clustering()
 
+    def increase_n_clusters(self, delta: int = 1):
+        """Increase the number of clusters (e.g. after a subcluster request)."""
+        old_k = self.n_clusters
+        self.n_clusters += delta
+        self.clustering = ClusteringModule(n_clusters=self.n_clusters)
+        print(f"[Engine] Increased n_clusters: {old_k} -> {self.n_clusters}")
+        # Re-fit immediately so centroids are populated before any checkpoint.
+        if self.z is not None:
+            z_np = self.z.detach().cpu().numpy()
+            self.labels = self.clustering.fit_predict(z_np)
+
     # ------------------------------------------------------------------
     # Active learning helpers
     # ------------------------------------------------------------------
@@ -365,12 +382,31 @@ class ClusterRefinementEngine:
         """
         Build candidate items/pairs/clusters with rich metadata and let the LLM
         select the best questions to ask the user.
+
+        Previously-asked item IDs are excluded to avoid repetitive suggestions.
         """
         candidates, context = self._build_candidate_pool()
         if not candidates:
             return []
+
+        # Filter out candidates whose items were already asked about.
+        filtered = []
+        for c in candidates:
+            ids = set(c.get("ids", []))
+            if ids and ids.issubset(self._asked_item_ids):
+                continue
+            filtered.append(c)
+        candidates = filtered or candidates  # fall back if everything filtered
+
         context_str = json.dumps(context, indent=2)
-        return self.llm.propose_questions(candidates, context_str)[:max_questions]
+        questions = self.llm.propose_questions(candidates, context_str)[:max_questions]
+
+        # Remember which items we just surfaced so we don't repeat them.
+        for q in questions:
+            for item_id in q.get("item_ids", []):
+                self._asked_item_ids.add(item_id)
+
+        return questions
 
     def _build_candidate_pool(
         self,
@@ -472,7 +508,18 @@ class ClusterRefinementEngine:
         candidates.extend(item_candidates)
         candidates.extend(pair_candidates[:top_pairs])
         candidates.extend(cluster_candidates)
-        return candidates, context
+
+        # Deduplicate candidates that refer to the same underlying text
+        # (e.g. repeated documents in the dataset).
+        seen_texts: set = set()
+        unique_candidates: List[Dict] = []
+        for c in candidates:
+            text_key = c.get("text") or str(c.get("texts", "")) or str(c.get("examples", ""))
+            if text_key in seen_texts:
+                continue
+            seen_texts.add(text_key)
+            unique_candidates.append(c)
+        return unique_candidates, context
 
     def _compute_item_scores(self, z: np.ndarray, centroids: np.ndarray, labels: np.ndarray):
         """Return items sorted by low margin / high distance."""
@@ -586,11 +633,12 @@ class ClusterRefinementEngine:
             must_links=list(self.constraints.must_links),
             cannot_links=list(self.constraints.cannot_links),
             miscluster_flags=list(self.constraints.miscluster_flags),
+            cluster_splits=list(self.constraints.cluster_splits),
             cluster_labels=dict(self.constraints.cluster_labels),
             emphasized_keywords=list(self.constraints.emphasized_keywords),
 
             # Metadata
-            cluster_metadata=getattr(self, 'cluster_metadata', {})
+            cluster_metadata=copy.deepcopy(getattr(self, 'cluster_metadata', {}))
         )
 
     def _save_checkpoint(self, description: str = ""):
@@ -637,6 +685,8 @@ class ClusterRefinementEngine:
             self.constraints.add_cannot_link(cl[0], cl[1])
         for flag in checkpoint.miscluster_flags:
             self.constraints.add_miscluster(flag)
+        for split_id in checkpoint.cluster_splits:
+            self.constraints.add_cluster_split(split_id)
         self.constraints.cluster_labels = dict(checkpoint.cluster_labels)
         self.constraints.emphasized_keywords = set(checkpoint.emphasized_keywords)
 
@@ -667,9 +717,32 @@ class ClusterRefinementEngine:
     def reset_session(self):
         """Reset to initial state."""
         if self.initial_state:
-            self.rollback_to_step(0)
-            self.step_counter = 0
-            self.state_history = []
+            print("[Engine] Resetting session to initial state")
+            checkpoint = copy.deepcopy(self.initial_state)
+
+            # Restore adapter state
+            self.adapter.load_state_dict(checkpoint.adapter_state['state_dict'])
+            self.optimizer.load_state_dict(checkpoint.adapter_state['optimizer_state'])
+
+            # Restore constraints
+            self.constraints = ConstraintStore(baseline_embeddings=self.baseline_embeddings)
+            for ml in checkpoint.must_links:
+                self.constraints.add_must_link(ml[0], ml[1])
+            for cl in checkpoint.cannot_links:
+                self.constraints.add_cannot_link(cl[0], cl[1])
+            for flag in checkpoint.miscluster_flags:
+                self.constraints.add_miscluster(flag)
+            for split_id in checkpoint.cluster_splits:
+                self.constraints.add_cluster_split(split_id)
+            self.constraints.cluster_labels = dict(checkpoint.cluster_labels)
+            self.constraints.emphasized_keywords = set(checkpoint.emphasized_keywords)
+
+            # Recompute clustering from restored model and constraints
+            self._update_clustering()
+
+            # Keep only the initial checkpoint in history.
+            self.state_history = [copy.deepcopy(checkpoint)]
+            self.step_counter = 1
             print("[Engine] Session reset to initial state")
         else:
             print("[Engine] No initial state to reset to")

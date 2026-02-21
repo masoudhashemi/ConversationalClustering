@@ -144,14 +144,19 @@ class FeedbackLoss(nn.Module):
                 if batch_miscluster_mask.any():
                     miscluster_z = z_k[batch_miscluster_mask]
                     miscluster_centroids = batch_centroids_k[batch_miscluster_mask]
-                    # Push away from current centroid (encourage reassignment)
+                    # Push away from current centroid (encourage reassignment).
+                    # Zero loss once distance is above margin.
                     miscluster_distances = torch.sum((miscluster_z - miscluster_centroids)**2, dim=1)
-                    loss_miscluster_k = torch.mean(miscluster_distances)
+                    loss_miscluster_k = torch.mean(
+                        torch.clamp(self.margin_cl - miscluster_distances, min=0)
+                    )
                 else:
                     loss_miscluster_k = torch.tensor(0.0, device=z.device)
                 loss_miscluster_per_head.append(loss_miscluster_k)
 
-        # Cluster Split Loss: Encourage variance in clusters marked for splitting
+        # Cluster Split Loss: Encourage variance in clusters marked for splitting.
+        # Uses 1/(var + eps) so the loss is high when the cluster is tight and
+        # drops toward zero as items spread out, giving a strong gradient signal.
         loss_split_per_head = []
         if cluster_splits:
             for k in range(num_heads):
@@ -161,20 +166,18 @@ class FeedbackLoss(nn.Module):
                 split_loss_k = torch.tensor(0.0, device=z.device)
                 for cluster_id in cluster_splits:
                     if cluster_id < K:
-                        # Items in this cluster
                         cluster_mask = (assignments == cluster_id)
-                        if cluster_mask.any():
+                        if cluster_mask.sum() > 1:
                             cluster_z = z_k[cluster_mask]
                             cluster_centroid = centroids_k[cluster_id]
-                            # Encourage spread from centroid (negative variance penalty)
-                            distances = torch.sum((cluster_z - cluster_centroid)**2, dim=1)
-                            # Penalize if cluster is too tight (want more variance for splitting)
-                            tightness_penalty = torch.exp(-distances.mean())  # Lower when distances are higher
-                            split_loss_k += tightness_penalty
+                            sq_dists = torch.sum((cluster_z - cluster_centroid)**2, dim=1)
+                            variance = sq_dists.mean()
+                            split_loss_k += 1.0 / (variance + 1e-4)
 
                 loss_split_per_head.append(split_loss_k)
 
-        # Keyword Emphasis Loss: Pull all embeddings toward emphasized keyword concepts
+        # Keyword Emphasis Loss: Maximize variance of projections along keyword
+        # directions so the adapter learns to separate items by these concepts.
         loss_keyword_per_head = []
         if emphasized_keywords and keyword_embeddings:
             for k in range(num_heads):
@@ -184,12 +187,13 @@ class FeedbackLoss(nn.Module):
                 for keyword in emphasized_keywords:
                     if keyword in keyword_embeddings:
                         keyword_emb = keyword_embeddings[keyword][k, :]  # [p]
-                        # Pull all embeddings toward this keyword concept
-                        distances = torch.sum((z_k - keyword_emb)**2, dim=1)
-                        keyword_loss_k += torch.mean(distances)
+                        keyword_dir = F.normalize(keyword_emb.unsqueeze(0), dim=1)  # [1, p]
+                        projections = (z_k * keyword_dir).sum(dim=1)  # [B]
+                        variance = torch.var(projections)
+                        keyword_loss_k += 1.0 / (variance + 1e-4)
 
                 if emphasized_keywords:
-                    keyword_loss_k /= len(emphasized_keywords)  # Average over keywords
+                    keyword_loss_k /= len(emphasized_keywords)
 
                 loss_keyword_per_head.append(keyword_loss_k)
 

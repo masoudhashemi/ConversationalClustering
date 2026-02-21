@@ -61,14 +61,35 @@ class RenameClusterHandler:
         store.set_cluster_label(action.cluster_ids[0], action.text_payload)
 
 class EmphasizeFeatureHandler:
+    import re as _re
+    _SPLIT_RE = _re.compile(r'\s*(?:,|;|\band\b|\bor\b|\b&\b)\s*', _re.IGNORECASE)
+    _NOISE_WORDS = _re.compile(
+        r'\b(?:elements?|aspects?|features?|concepts?|themes?|keywords?|topics?|factors?)\b',
+        _re.IGNORECASE,
+    )
+
+    @classmethod
+    def _clean(cls, token: str) -> str:
+        """Strip filler/noise words and collapse whitespace."""
+        cleaned = cls._NOISE_WORDS.sub('', token).strip()
+        cleaned = cls._re.sub(r'\s+', ' ', cleaned)
+        return cleaned
+
     def handle(self, action: FeedbackAction, store: ConstraintStore, context: Any = None):
         if not action.text_payload:
             return
-        store.add_emphasized_keyword(action.text_payload)
+        raw = action.text_payload.strip()
+        tokens = self._SPLIT_RE.split(raw)
+        keywords = [self._clean(t) for t in tokens]
+        keywords = [kw for kw in keywords if kw]
+        if not keywords:
+            keywords = [raw]
+        for kw in keywords:
+            store.add_emphasized_keyword(kw)
 
 class RollbackHandler:
     def handle(self, action: FeedbackAction, store: ConstraintStore, context: Any = None):
-        if not context or not action.step_number:
+        if not context or action.step_number is None:
             return
         # Context should be the engine with rollback capability
         context.rollback_to_step(action.step_number)
@@ -92,6 +113,8 @@ class SubclusterHandler:
             return
         for cluster_id in action.cluster_ids:
             store.add_cluster_split(cluster_id)
+            if context and hasattr(context, 'increase_n_clusters'):
+                context.increase_n_clusters(1)
 
 class AssignOutlierHandler:
     def handle(self, action: FeedbackAction, store: ConstraintStore, context: Any = None):
