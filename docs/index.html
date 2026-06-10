@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LLMs as Tools for Objective Evolution</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #17202a;
+      background: #f7f8fb;
+      line-height: 1.65;
+    }
+    main {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 56px 22px 80px;
+    }
+    article {
+      background: #ffffff;
+      border: 1px solid #e8ebf0;
+      border-radius: 18px;
+      padding: 44px;
+      box-shadow: 0 18px 50px rgba(20, 30, 60, 0.06);
+    }
+    h1 {
+      font-size: clamp(2.1rem, 5vw, 4rem);
+      line-height: 1.08;
+      margin: 0 0 18px;
+      letter-spacing: -0.045em;
+    }
+    h2 {
+      margin-top: 44px;
+      margin-bottom: 14px;
+      font-size: 1.45rem;
+      letter-spacing: -0.02em;
+    }
+    h3 {
+      margin-top: 28px;
+      margin-bottom: 8px;
+      font-size: 1.08rem;
+    }
+    p {
+      margin: 0 0 18px;
+    }
+    a {
+      color: #265ecf;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .subtitle {
+      color: #536171;
+      font-size: 1.15rem;
+      margin-bottom: 34px;
+    }
+    .note {
+      background: #f3f6ff;
+      border-left: 4px solid #4d73d9;
+      padding: 16px 18px;
+      border-radius: 10px;
+      margin: 26px 0;
+    }
+    .formula {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.95rem;
+      background: #f5f6f8;
+      border: 1px solid #e3e6ea;
+      border-radius: 12px;
+      padding: 16px;
+      overflow-x: auto;
+      margin: 18px 0 22px;
+      white-space: pre-wrap;
+    }
+    ul {
+      padding-left: 1.25rem;
+      margin-top: 0;
+    }
+    li {
+      margin-bottom: 9px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 18px 0 24px;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border: 1px solid #e4e7ec;
+      padding: 12px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #f6f7fa;
+    }
+    .small {
+      color: #647180;
+      font-size: 0.95rem;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #f1f3f6;
+      padding: 0.12rem 0.32rem;
+      border-radius: 6px;
+      font-size: 0.92em;
+    }
+    @media (max-width: 720px) {
+      article {
+        padding: 28px;
+      }
+      table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <article>
+    <h1>LLMs as Tools for Objective Evolution</h1>
+    <p class="subtitle">A research direction about using language models where they are strong, while keeping optimization where math is strong.</p>
+
+    <p>
+      There is a growing line of work that treats LLMs not only as models that answer questions,
+      but as components inside optimization loops. This is already happening in different forms.
+      In OPRO, the LLM sees previous candidate solutions and their scores, then proposes new
+      candidates. In prompt optimization, the LLM rewrites prompts based on performance feedback.
+      In TextGrad-style methods, a language model produces textual feedback that plays the role of
+      a gradient for text variables. In evolutionary methods such as language model crossover and
+      Evolution through Large Models, the LLM acts like a mutation or crossover operator. In Eureka,
+      the LLM generates and revises reward code for reinforcement learning.
+    </p>
+
+    <p>
+      I think this is one of the most interesting directions for LLMs. But I do not think the best
+      framing is that LLMs should replace optimizers. Optimization is one of the places where math,
+      gradients, solvers, sampling methods, and numerical algorithms have built a lot of rigor. If
+      we have a well-defined objective and a reliable optimizer, we should not throw that away just
+      because we have a language model.
+    </p>
+
+    <p>
+      The more interesting direction to me is to use LLMs around optimization. They can propose
+      semantically meaningful moves, write candidate rules, summarize failure traces, generate tests,
+      translate human feedback into constraints, and help us revise the objective. Then another
+      system can check, score, simulate, solve, or optimize those proposals.
+    </p>
+
+    <p>
+      This matters because in many real problems the hard part is not only finding the optimum. The
+      hard part is that the real objective is not fully written down. The target may be subjective,
+      changing, tacit, or only partially formalized. We may not know how to write the global loss,
+      but we can often say local things that are true: "these two examples should behave similarly",
+      "this answer violates the style I want", "this agent should not talk to that agent unless it
+      has evidence", "this cluster is too mixed", "this prompt is over-optimizing for correctness
+      and losing clarity".
+    </p>
+
+    <p>
+      These local statements are not the full objective. But they are useful constraints. They can
+      be turned into soft penalties, tests, validators, routing rules, prompts, or typed edits to an
+      optimization problem. My view is that LLMs are a natural tool for this translation layer.
+    </p>
+
+    <div class="note">
+      The core idea is: use LLMs to translate local, natural-language guidance into typed and
+      validated objective edits, then let rigorous optimization methods solve the resulting problem.
+    </div>
+
+    <h2>The problem with fixed objectives</h2>
+
+    <p>
+      In standard optimization we usually assume there is a fixed objective <code>L(x)</code>.
+      We then design an algorithm to minimize it. In gradient-based optimization we use local
+      derivatives. In derivative-free optimization we may estimate directions, use populations,
+      use surrogate models, or search over candidates.
+    </p>
+
+    <p>
+      It would be inaccurate to say that optimization always uses the same loss in a naive way.
+      There are many serious methods that change or shape the objective over time: continuation
+      methods, curriculum learning, annealing, adaptive penalties, augmented Lagrangians, and
+      trust-region methods. So the issue is not simply that the loss is fixed.
+    </p>
+
+    <p>
+      The issue I care about is more specific. Most of these objective changes are hand-designed
+      and content-blind. They do not read the problem, understand what the user meant, look at a
+      failure trace, and propose a new local rule. They give us mathematical control, but not much
+      semantic bandwidth.
+    </p>
+
+    <p>
+      On the other side, using an LLM as the optimizer itself gives semantic bandwidth but loses
+      numerical rigor. This is also why I do not think the right goal is "LLMs replace optimizers".
+      LLMs are good at interpreting text, writing structured code, proposing hypotheses, and using
+      background knowledge. They are not the best tool for high-dimensional numerical search,
+      stable convergence, or exact constraint satisfaction.
+    </p>
+
+    <h2>A general formulation</h2>
+
+    <p>
+      A more useful formulation is to split the system into two levels.
+    </p>
+
+    <div class="formula">At iteration t:
+
+We have variables x_t and a current objective L_t(x).
+We run a rigorous optimizer to improve x_t under L_t.
+We observe feedback, traces, failures, or human comments s_t.
+An LLM maps s_t into a typed objective edit Delta C_t.
+A validator checks whether Delta C_t is legal, consistent, and safe.
+We update the objective:
+
+L_{t+1}(x) = L_base(x) + sum_{c in C_t union Delta C_t} lambda_c phi_c(x)
+
+Then the rigorous optimizer continues.</div>
+
+    <p>
+      In this view, the LLM does not need to know the optimum. It does not need to compute a
+      gradient. It does not need to directly manipulate every parameter. Its job is to propose
+      local rules that are meaningful, typed, and checkable.
+    </p>
+
+    <p>
+      This is close in spirit to constraint satisfaction, but I would be careful not to claim that
+      every optimization problem is literally becoming an SMT problem. SMT and optimization modulo
+      theories are formal solver settings with their own guarantees. The broader idea here is a
+      softer and more general one: optimization becomes an evolving soft-constraint problem, where
+      local constraints are authored from language and then compiled into a mathematical or executable
+      form.
+    </p>
+
+    <h2>Why this is different from the alternatives</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Approach</th>
+          <th>What it gives us</th>
+          <th>Where it is limited</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Classical fixed-objective optimization</td>
+          <td>Rigor, convergence tools, scale, reproducibility</td>
+          <td>Requires the objective to already be formalized</td>
+        </tr>
+        <tr>
+          <td>Continuation, curriculum, annealing, adaptive penalties</td>
+          <td>Principled objective shaping over time</td>
+          <td>The shaping is usually hand-designed and not semantically aware</td>
+        </tr>
+        <tr>
+          <td>Pure LLM optimization</td>
+          <td>Flexible language interface and broad prior knowledge</td>
+          <td>No reliable numerical geometry, weak convergence story, high variance</td>
+        </tr>
+        <tr>
+          <td>LLM-written free-form objective code</td>
+          <td>High expressivity</td>
+          <td>Large failure surface: invalid code, reward hacking, unsafe objective edits</td>
+        </tr>
+        <tr>
+          <td>Typed LLM objective edits plus rigorous optimization</td>
+          <td>Natural-language freedom at the boundary, mathematical rigor in the core</td>
+          <td>The typed schema limits what the LLM can express</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      This last row is the direction I find promising. The LLM is used for what it is good at:
+      text interpretation, hypothesis generation, mapping loose intent into structured forms, and
+      sometimes proposing code or tests. The optimizer is used for what it is good at: search,
+      gradients, constraints, numerical stability, and scale.
+    </p>
+
+    <p>
+      The important design principle is the typed interface. The LLM should not be allowed to
+      freely corrupt the optimization loop. It should emit a small object that can be checked. A bad
+      LLM output should become one bad soft rule that can be weighted, rejected, overridden, or
+      rolled back. It should not become an unbounded update to the entire system.
+    </p>
+
+    <h2>A simple example: clustering</h2>
+
+    <p>
+      The clustering project in this repository is a small example of this idea. Clustering is a
+      good example because the "correct" clustering is often subjective. The same set of documents
+      can be clustered by topic, tone, user intent, risk, product area, or any other latent concept.
+      There may not be a single global objective that captures what the user means.
+    </p>
+
+    <p>
+      In the code, the system starts with embeddings and k-means. That is the rigorous part.
+      Then the user gives natural-language feedback: "items 0 and 4 should be together",
+      "item 6 should not be with item 2", "rename this cluster", "emphasize genre rather than actor
+      names", "this cluster is too mixed".
+    </p>
+
+    <p>
+      The LLM does not recluster the dataset by itself. It maps the message into a typed
+      <code>FeedbackAction</code>. The action can be a must-link, cannot-link, rename, feature
+      emphasis, miscluster flag, subcluster request, or outlier assignment. The constraint store
+      checks consistency. The differentiable loss then changes, and the adapter is trained with
+      Adam before k-means runs again.
+    </p>
+
+    <div class="formula">Natural language feedback
+  -> LLM parser
+  -> typed FeedbackAction
+  -> checked ConstraintStore
+  -> updated FeedbackLoss
+  -> Adam and k-means
+  -> new clustering
+  -> more feedback</div>
+
+    <p>
+      This is not the most general possible version of the idea. It is deliberately constrained.
+      That is the point. The LLM gets the freedom of language, but the optimizer gets a typed,
+      bounded, mathematical object. The result is a hybrid system: semantic flexibility at the
+      boundary and numerical rigor in the core.
+    </p>
+
+    <h2>A larger direction: optimizing agentic systems as graphs</h2>
+
+    <p>
+      A more general and exciting application is agentic systems. Suppose an agentic system is a
+      graph. Nodes are LLM calls, tools, retrievers, classifiers, memory modules, critics, and
+      models. Edges are communication channels and control flow. The performance of the system
+      depends on many different kinds of parameters.
+    </p>
+
+    <p>
+      Some of these parameters are rigorous. Model weights, LoRA adapters, retriever embeddings,
+      routing probabilities, and edge-selection policies can often be optimized with gradients,
+      reinforcement learning, Bayesian optimization, or other numerical methods.
+    </p>
+
+    <p>
+      Other parts are loose. Prompts, tool descriptions, agent messages, role definitions, critique
+      instructions, and communication protocols are textual objects. They do not have a clean vector
+      space where ordinary gradients apply. Yet they matter enormously.
+    </p>
+
+    <p>
+      This gives a unified formulation:
+    </p>
+
+    <div class="formula">Agentic system = graph G = (V, E)
+
+Hard parameters:
+  model weights, embeddings, routers, edge probabilities, retrieval indices
+
+Soft parameters:
+  prompts, messages, tool descriptions, communication rules, critique policies
+
+Goal:
+  optimize system performance while assigning each block to the optimizer that fits it best.</div>
+
+    <p>
+      The same philosophy applies. We should not force one optimization method to solve all parts
+      of the graph. For hard parameters, use rigorous optimizers. For soft parameters, use LLMs to
+      propose edits, rules, tests, and local communication constraints. Between the two, use typed
+      interfaces and validators.
+    </p>
+
+    <p>
+      This can become a general view of agent optimization: not prompt optimization alone, not model
+      optimization alone, not graph search alone, but heterogeneous optimization over a system whose
+      parts have different mathematical character.
+    </p>
+
+    <h2>How this relates to current papers</h2>
+
+    <p>
+      There are several papers that support this direction.
+      <a href="https://arxiv.org/html/2309.03409">OPRO</a> shows that LLMs can act as black-box
+      optimizers over natural-language solutions, although the authors are clear that this is not
+      meant to beat specialized numerical solvers.
+      <a href="https://arxiv.org/html/2406.07496v1">TextGrad</a> and earlier textual-gradient
+      work show how natural-language feedback can be used as a kind of gradient for text variables.
+      <a href="https://arxiv.org/abs/2310.12931">Eureka</a> shows LLMs evolving reward code for
+      reinforcement learning. <a href="https://arxiv.org/html/2404.04326v3">HypoGeniC</a> shows
+      an explicit loop of hypothesis generation, validation, and refinement.
+    </p>
+
+    <p>
+      For agentic systems, <a href="https://arxiv.org/pdf/2402.16823">GPTSwarm</a> is especially
+      relevant because it models language agents as optimizable graphs, with node-level prompt
+      optimization and edge-level graph optimization. <a href="https://proceedings.iclr.cc/paper_files/paper/2024/hash/f1cf02ce09757f57c3b93c0db83181e0-Abstract-Conference.html">DSPy</a>
+      is another important example because it treats language-model programs as optimizable
+      pipelines. <a href="https://huggingface.co/papers/2408.08435">Automated Design of Agentic
+      Systems</a> and <a href="https://iclr.cc/virtual/2025/poster/27691">AFlow</a> push the idea
+      toward automatic workflow and agent design.
+    </p>
+
+    <p>
+      There are also papers that warn us not to overclaim. Work revisiting OPRO on smaller models
+      shows that LLMs can be weak optimizers when model capacity is limited. OPRO itself reports
+      context-window and landscape limitations. Work on multi-objective prompt optimization shows
+      that textual gradients do not behave like numerical gradients: they do not have magnitudes,
+      inner products, or projection operations in the same way. This is exactly why I think the
+      hybrid view is important. The LLM should not be trusted as the whole optimizer. It should be
+      placed where its failure modes are contained.
+    </p>
+
+    <h2>The research question</h2>
+
+    <p>
+      The question is not whether LLMs are better optimizers than Adam, CMA-ES, SMT solvers, or
+      Bayesian optimization. In many cases they are not. The better question is:
+    </p>
+
+    <div class="note">
+      Can LLMs help us evolve the objective, constraints, tests, and communication rules of a
+      system while rigorous optimizers handle the parts that have mathematical structure?
+    </div>
+
+    <p>
+      If the answer is yes, then LLMs become tools for objective evolution. They help move between
+      the language of human intent and the language of optimization. The optimizer remains the
+      optimizer. But the objective becomes something that can be discussed, revised, localized, and
+      improved over time.
+    </p>
+
+    <p>
+      I think this is a promising direction because many useful systems are not just models anymore.
+      They are graphs of models, prompts, tools, validators, agents, and communication channels.
+      Some parts are mathematical. Some parts are textual. Some parts are subjective. The right
+      optimizer for such systems should not be a single algorithm. It should be a composition of
+      optimizers, with LLMs acting as the semantic layer that proposes local rules and translates
+      human intent into typed objective edits.
+    </p>
+
+    <p class="small">
+      Running example: this repository's clustering system implements a minimal
+      version of the idea. The broader direction is heterogeneous optimization for agentic systems.
+    </p>
+  </article>
+</main>
+</body>
+</html>
